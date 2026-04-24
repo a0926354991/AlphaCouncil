@@ -4,7 +4,7 @@ from google.adk.agents.loop_agent import LoopAgent
 from google.adk.agents.sequential_agent import SequentialAgent
 from google.genai import types
 
-from alpha_council.utils.master_runtime import DynamicMastersPanel
+from alpha_council.utils.master_runtime import DynamicMastersPanel, build_reports_context
 
 from alpha_council.analysts import (
     technical_analyst,
@@ -30,6 +30,8 @@ from alpha_council.masters import (
 )
 from alpha_council.researchers import bull_researcher, bear_researcher
 from alpha_council.risk import aggressive_debater, neutral_debater, conservative_debater
+from alpha_council.trader import trader
+from alpha_council.managers import research_manager
 from alpha_council.master_selector import master_selector_agent
 from guardrail.stock_code_guard import stock_code_guard_callback
 
@@ -111,23 +113,8 @@ research_debate = LoopAgent(
     description="看多研究員與看空研究員進行辯論，最多循環 2 輪，凝聚多空論點。",
 )
 
-# Phase 4 — 研究管理人裁決
-research_manager = Agent(
-    model="gemini-2.5-flash",
-    name="research_manager",
-    description="綜合辯論結果，裁決最終研究結論，輸出投資信號與關鍵論據。",
-    before_agent_callback=_skip_downstream,
-    instruction="根據 research_debate 的多空論點，給出明確的買入 / 持有 / 賣出建議並說明理由。",
-)
-
-# Phase 4b — 交易員
-trader = Agent(
-    model="gemini-2.5-flash",
-    name="trader",
-    description="依據研究管理人的結論，擬定具體交易方案（標的、方向、倉位比例）。",
-    before_agent_callback=_skip_downstream,
-    instruction="根據研究管理人的投資信號，產出可執行的交易計畫，包含進場條件與停損設定。",
-)
+# Phase 4 — 研究管理人裁決 → alpha_council.managers.research_manager
+# Phase 4b — 交易員 → alpha_council.trader.trader
 
 # Phase 5 — 風險辯論（最多 2 輪）
 risk_debate = LoopAgent(
@@ -139,12 +126,31 @@ risk_debate = LoopAgent(
 )
 
 # Phase 6 — 投資組合管理人最終決策
+def _portfolio_manager_instruction(ctx) -> str:
+    context_block = build_reports_context(ctx.state, ["research_report?", "trader_plan?"])
+    base = (
+        "你是投資組合管理人，負責做出最終投資決策。\n\n"
+        "根據研究管理人的裁決與交易員的執行計畫，輸出以下結構：\n"
+        "1. **最終決策**：買入 / 持有 / 賣出（需與研究信號一致或說明偏差理由）\n"
+        "2. **建議倉位比例**（相對總投資組合的百分比）\n"
+        "3. **風險敞口控管**（最大可接受損失、停損設定）\n"
+        "4. **退出策略**（目標價達成或停損觸發條件）\n"
+    )
+    if context_block:
+        return (
+            "【研究管理人裁決與交易員計畫】\n\n"
+            f"{context_block}\n\n"
+            "---\n\n"
+            f"{base}"
+        )
+    return base
+
 portfolio_manager = Agent(
     model="gemini-2.5-flash",
     name="portfolio_manager",
     description="整合所有分析與風險辯論，做出最終投資組合決策，包含倉位大小與風險控管措施。",
     before_agent_callback=_skip_downstream,
-    instruction="根據交易員方案與風險辯論結果，給出最終投資決策，需明確說明倉位比例、風險敞口與退出策略。",
+    instruction=_portfolio_manager_instruction,
 )
 
 # ---------------------------------------------------------------------------
@@ -154,10 +160,14 @@ portfolio_manager = Agent(
 # 條件跳過由各 agent 的 before_agent_callback 負責；允許 skip events。
 #
 # Session state keys:
-#   analyst_team         → news_report (+ future: technical_report, etc.)
+#   analyst_team         → news_report, technical_report, psychology_report, fundamentals_report, chip_report
 #   master_selector      → selected_masters: list[str], awaiting_master_choice: bool
 #   masters_panel        → {name}_report for each selected master
 #                        + consolidated_masters_report
+#   bull_researcher      → bull_argument  (每輪覆寫，第二輪已含對 bear 的回應)
+#   bear_researcher      → bear_argument  (每輪覆寫，第二輪已含對 bull 的回應)
+#   research_manager     → research_report
+#   trader               → trader_plan
 
 alpha_council_pipeline_agent = SequentialAgent(
     name="AlphaCouncilPipelineAgent",
@@ -165,10 +175,10 @@ alpha_council_pipeline_agent = SequentialAgent(
         analyst_team,
         master_selector_agent,
         masters_panel,
-        # research_debate,
-        # research_manager,
-        # trader,
-        # risk_debate,
+        research_debate,
+        research_manager,
+        trader,
+        risk_debate,
         portfolio_manager,
     ],
     before_agent_callback=stock_code_guard_callback,
