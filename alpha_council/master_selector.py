@@ -107,6 +107,10 @@ def skip_if_no_analysis_intent(callback_context) -> types.Content | None:
         logger.info("Skipping agent: analysis_intent=False.")
         return types.Content(parts=[])
 
+    if callback_context.state.get("skip_master_selector"):
+        logger.info("Skipping agent: skip_master_selector=True.")
+        return types.Content(parts=[])
+
     return None
 
 

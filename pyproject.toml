@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4",
     "feedparser",
     "google-adk",
+    "google-cloud-storage",
     "lxml",
     "numpy",
     "pandas",
@@ -20,5 +21,8 @@ dependencies = [
     "yfinance",
 ]
 
+[project.scripts]
+alpha-council = "alpha_council.cli.run:main"
+
 [tool.setuptools.packages.find]
-include = ["alpha_council*"]
+include = ["alpha_council*", "guardrail*"]

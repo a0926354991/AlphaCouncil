@@ -327,7 +327,15 @@ class DynamicMastersPanel(BaseAgent):
         selected: list[str] = list(state.get("selected_masters") or [])
 
         if not selected:
-            logger.info("DynamicMastersPanel: selected_masters empty -- nothing to run.")
+            logger.info("DynamicMastersPanel: selected_masters empty -- writing fallback report.")
+            state["consolidated_masters_report"] = (
+                "### consolidated_masters_report\n"
+                "selected_masters: []\n"
+                "included_count: 0\n"
+                "included_masters: []\n\n"
+                "---\n"
+                "[本輪已跳過大師分析，後續流程將以分析師報告繼續]"
+            )
             return
 
         registry: dict[str, BaseAgent] = {a.name: a for a in self.sub_agents}

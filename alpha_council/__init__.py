@@ -1,1 +1,1 @@
-from . import agent
+"""AlphaCouncil package."""
