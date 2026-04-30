@@ -1,9 +1,16 @@
 from google.adk.agents.llm_agent import Agent
 
-from alpha_council.utils.master_runtime import DEFAULT_ANALYST_KEYS, build_reports_context
+from alpha_council.utils.master_runtime import (
+    DEFAULT_ANALYST_KEYS,
+    build_reports_context,
+    make_peer_injector,
+)
 
-# 注入分析師報告 + 大師聚合報告 + 多方論點（bull 永遠先跑，故為 required）
-_CONTEXT_KEYS = DEFAULT_ANALYST_KEYS + ["consolidated_masters_report", "bull_argument"]
+# system_instruction stays byte-identical across both LoopAgent rounds so the
+# (analyst reports + consolidated_masters_report) prefix is cacheable.
+# bull_argument arrives via before_model_callback as a user message — see
+# make_peer_injector.
+_PREFIX_KEYS = DEFAULT_ANALYST_KEYS + ["consolidated_masters_report"]
 
 _BASE = """你是一位看空研究員，負責為辯論提出最強力的空方論點。
 
@@ -14,16 +21,16 @@ _BASE = """你是一位看空研究員，負責為辯論提出最強力的空方
 4. 提出下行目標價與理由（基於最有可能的悲觀情境）
 5. 輸出結構化的「空方投資摘要」，語氣有說服力且論據具體。
 
-若上方資料中已出現 bull_argument，需針對多方研究員的論點逐點反駁並強化己方論點。
+對話中會出現多方研究員的最新論點 (bull_argument)，需逐點反駁並強化己方論點。
 """
 
 
 def _instruction(ctx) -> str:
-    context_block = build_reports_context(ctx.state, _CONTEXT_KEYS)
-    if context_block:
+    prefix_block = build_reports_context(ctx.state, _PREFIX_KEYS)
+    if prefix_block:
         return (
             "【前置分析資料 — 請優先閱讀以下內容再建構你的空方論點】\n\n"
-            f"{context_block}\n\n"
+            f"{prefix_block}\n\n"
             "---\n\n"
             f"{_BASE}"
         )
@@ -35,5 +42,9 @@ bear_researcher = Agent(
     name="bear_researcher",
     description="看空研究員：整合所有分析師與大師觀點，建構最有力的空方投資論點。",
     instruction=_instruction,
+    before_model_callback=make_peer_injector(
+        peer_keys=["bull_argument"],
+        header="【多方研究員最新論點 — 請逐點反駁】",
+    ),
     output_key="bear_argument",
 )

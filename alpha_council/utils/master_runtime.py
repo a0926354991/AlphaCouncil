@@ -178,6 +178,37 @@ def make_before_callback(master_name: str):
 # ---------------------------------------------------------------------------
 
 
+def make_peer_injector(peer_keys: list[str], header: str):
+    """Return a before_model_callback that appends peer arguments as a user
+    message instead of bloating system_instruction.
+
+    Why: Gemini implicit cache fires when a request's serialized prefix matches
+    a recent request's. Variable peer args (e.g. bull_argument changing between
+    LoopAgent rounds) inside system_instruction break the prefix at a low byte
+    offset, killing cross-round cache. Moving them into contents keeps the
+    static system_instruction byte-identical across rounds, so the much-larger
+    static prefix becomes cacheable.
+
+    The injected message uses role="user" because the Gemini API only accepts
+    user/model roles in contents — system_instruction is a separate field.
+    """
+    from google.genai import types  # local import to avoid top-level coupling
+
+    def callback(callback_context, llm_request):
+        peer_block = build_reports_context(callback_context.state, peer_keys)
+        if not peer_block:
+            return None
+        llm_request.contents.append(
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=f"{header}\n\n{peer_block}")],
+            )
+        )
+        return None
+
+    return callback
+
+
 def make_instruction(
     master_name: str,
     base_instruction: str,
@@ -201,21 +232,25 @@ def make_instruction(
         state = ctx.state
         context_block = build_reports_context(state, specs)
 
-        header_instruction = (
+        # Master-specific text is kept at the END of the prompt so that the
+        # shared analyst-report prefix is byte-identical across all masters
+        # using the same `report_key_specs`. This lets Gemini's implicit
+        # context cache hit on master 2..N and skip re-billing the prefix.
+        master_specific_tail = (
             f"【回應格式規範 — 極重要】\n"
             f"你的回應必須以 Markdown 一級標題開始，內容為你的名字：\n"
             f"# {display_name}\n\n"
+            f"{base_instruction}"
         )
 
         if context_block:
             return (
-                f"{header_instruction}"
                 "【前置分析報告 — 請優先閱讀以下資料再發表你的觀點】\n\n"
                 f"{context_block}\n\n"
                 "---\n\n"
-                f"{base_instruction}"
+                f"{master_specific_tail}"
             )
-        return f"{header_instruction}{base_instruction}"
+        return master_specific_tail
 
     return dynamic_instruction
 

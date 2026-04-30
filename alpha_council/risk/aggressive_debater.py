@@ -1,11 +1,12 @@
 from google.adk.agents.llm_agent import Agent
 
 from alpha_council.utils.market_snapshot import build_snapshot_context
-from alpha_council.utils.master_runtime import build_reports_context
+from alpha_council.utils.master_runtime import build_reports_context, make_peer_injector
 
 
-# trader_plan 為錨點（必要）；其餘 debater 論點在第二輪才會存在（optional）
-_CONTEXT_KEYS = ["trader_plan", "neutral_argument?", "conservative_argument?"]
+# system_instruction stays byte-identical across both LoopAgent rounds so the
+# (snapshot + trader_plan) prefix is cacheable. Peer debaters' arguments arrive
+# via before_model_callback as a user message — see make_peer_injector.
 
 
 _BASE = """你是風險辯論中的激進辯手，代表「高風險高報酬」立場。
@@ -21,18 +22,19 @@ _BASE = """你是風險辯論中的激進辯手，代表「高風險高報酬」
 
 語氣積極進取，但論點需**引用快照裡的具體數字**（如「當前價 $X、ATR $Y、年化波動 Z%」），不得純粹情緒化。
 
-若上方已出現 neutral_argument 或 conservative_argument，代表這是第二輪辯論——需針對中立方與保守方的最新論點逐點反駁，並進一步強化己方立場。
+若對話中出現 neutral_argument 或 conservative_argument，代表這是第二輪辯論——需針對中立方與保守方的最新論點逐點反駁，並進一步強化己方立場。
 """
 
 
 def _instruction(ctx) -> str:
-    snapshot_block = build_snapshot_context(ctx.state)
-    peer_block = build_reports_context(ctx.state, _CONTEXT_KEYS)
+    state = ctx.state
+    snapshot_block = build_snapshot_context(state)
+    trader_block = build_reports_context(state, ["trader_plan"])
     parts: list[str] = []
     if snapshot_block:
         parts.append(snapshot_block)
-    if peer_block:
-        parts.append("【交易員方案 + 他方辯手論點（第二輪始具備 peer 論點）】\n\n" + peer_block)
+    if trader_block:
+        parts.append("【交易員方案】\n\n" + trader_block)
     parts.append(_BASE)
     return "\n\n---\n\n".join(parts)
 
@@ -42,5 +44,9 @@ aggressive_debater = Agent(
     name="aggressive_debater",
     description="激進辯手：主張最大化報酬，支持高倉位、高槓桿或積極進場的風險立場。",
     instruction=_instruction,
+    before_model_callback=make_peer_injector(
+        peer_keys=["neutral_argument?", "conservative_argument?"],
+        header="【其他辯手最新論點】",
+    ),
     output_key="aggressive_argument",
 )

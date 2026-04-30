@@ -1,7 +1,9 @@
+from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.agents.llm_agent import Agent
-from google.adk.agents.parallel_agent import ParallelAgent
 from google.adk.agents.loop_agent import LoopAgent
+from google.adk.agents.parallel_agent import ParallelAgent
 from google.adk.agents.sequential_agent import SequentialAgent
+from google.adk.apps.app import App
 from google.genai import types
 
 from alpha_council.utils.master_runtime import DynamicMastersPanel, build_reports_context
@@ -203,3 +205,26 @@ alpha_council_pipeline_agent = SequentialAgent(
 )
 
 root_agent = alpha_council_pipeline_agent
+
+# Explicit ADK-managed context caching. Without this, ADK does not create
+# CachedContent on the Gemini side, so the only cache that ever hits is the
+# model's own (short-TTL, opportunistic) implicit cache. With it, ADK actively
+# caches the shared prefix once it crosses `min_tokens` and reuses it across
+# subsequent LLM calls within the same app — directly cutting input bill.
+#
+#   min_tokens     ≥ Flash's ~1024 implicit threshold so cache creation is
+#                  worth the overhead; small prompts skip caching entirely.
+#   ttl_seconds    10 min covers a single full pipeline run (analysts →
+#                  masters → debates → portfolio_manager) plus a margin for
+#                  the user's master-selection round-trip.
+#   cache_intervals high so a single cache entry serves the whole run rather
+#                   than being torn down and rebuilt mid-pipeline.
+app = App(
+    name="alpha_council",
+    root_agent=root_agent,
+    context_cache_config=ContextCacheConfig(
+        min_tokens=2048,
+        ttl_seconds=600,
+        cache_intervals=100,
+    ),
+)

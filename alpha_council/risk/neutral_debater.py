@@ -1,11 +1,14 @@
 from google.adk.agents.llm_agent import Agent
 
 from alpha_council.utils.market_snapshot import build_snapshot_context
-from alpha_council.utils.master_runtime import build_reports_context
+from alpha_council.utils.master_runtime import build_reports_context, make_peer_injector
 
 
-# aggressive 永遠先跑故 required；conservative 第二輪才會存在（optional）
-_CONTEXT_KEYS = ["trader_plan", "aggressive_argument", "conservative_argument?"]
+# system_instruction stays byte-identical across both LoopAgent rounds so the
+# (snapshot + trader_plan) prefix is cacheable. Peer debaters' arguments arrive
+# via before_model_callback as a user message — see make_peer_injector.
+# aggressive_argument is required (always runs before neutral); conservative_argument
+# only exists in round 2.
 
 
 _BASE = """你是風險辯論中的中立辯手，代表「風險調整後最優報酬」立場。
@@ -21,18 +24,19 @@ _BASE = """你是風險辯論中的中立辯手，代表「風險調整後最優
 
 語氣理性、客觀，以**具體數字與機率思維**為主軸。每個結論都必須能從快照的數據推導出來。
 
-第二輪辯論時，aggressive_argument 已更新為激進方本輪最新論點，conservative_argument 為前一輪保守方論點——需逐點點評雙方最新立場，並修正你的仲裁建議。
+第二輪辯論時，對話中的 aggressive_argument 已更新為激進方本輪最新論點，conservative_argument 為前一輪保守方論點——需逐點點評雙方最新立場，並修正你的仲裁建議。
 """
 
 
 def _instruction(ctx) -> str:
-    snapshot_block = build_snapshot_context(ctx.state)
-    peer_block = build_reports_context(ctx.state, _CONTEXT_KEYS)
+    state = ctx.state
+    snapshot_block = build_snapshot_context(state)
+    trader_block = build_reports_context(state, ["trader_plan"])
     parts: list[str] = []
     if snapshot_block:
         parts.append(snapshot_block)
-    if peer_block:
-        parts.append("【交易員方案 + 激進/保守辯手最新論點】\n\n" + peer_block)
+    if trader_block:
+        parts.append("【交易員方案】\n\n" + trader_block)
     parts.append(_BASE)
     return "\n\n---\n\n".join(parts)
 
@@ -42,5 +46,9 @@ neutral_debater = Agent(
     name="neutral_debater",
     description="中立辯手：以風險平衡為核心，尋求報酬與風險控管之間的最優折衷方案。",
     instruction=_instruction,
+    before_model_callback=make_peer_injector(
+        peer_keys=["aggressive_argument", "conservative_argument?"],
+        header="【其他辯手最新論點】",
+    ),
     output_key="neutral_argument",
 )
