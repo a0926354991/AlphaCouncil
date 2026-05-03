@@ -1,13 +1,17 @@
 from google.adk.agents.llm_agent import Agent
 
 from alpha_council.utils.master_runtime import (
+    ANALYST_REPORT_HEADER,
     DEFAULT_ANALYST_KEYS,
     build_reports_context,
     make_peer_injector,
 )
 
-# system_instruction stays byte-identical across both LoopAgent rounds so the
-# (analyst reports + consolidated_masters_report) prefix is cacheable.
+# system_instruction stays byte-identical across both LoopAgent rounds, AND
+# uses the shared ANALYST_REPORT_HEADER so the `header + analyst reports`
+# prefix is cacheable across:
+#   - bull → bear within research_debate
+#   - masters_panel → bull/bear (masters' first 5 reports overlap)
 # bear_argument arrives via before_model_callback as a user message — see
 # make_peer_injector.
 _PREFIX_KEYS = DEFAULT_ANALYST_KEYS + ["consolidated_masters_report"]
@@ -29,7 +33,7 @@ def _instruction(ctx) -> str:
     prefix_block = build_reports_context(ctx.state, _PREFIX_KEYS)
     if prefix_block:
         return (
-            "【前置分析資料 — 請優先閱讀以下內容再建構你的多方論點】\n\n"
+            f"{ANALYST_REPORT_HEADER}\n\n"
             f"{prefix_block}\n\n"
             "---\n\n"
             f"{_BASE}"

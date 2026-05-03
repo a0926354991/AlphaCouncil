@@ -98,6 +98,12 @@ DEFAULT_ANALYST_KEYS: list[str] = [
     "chip_report",
 ]
 
+# Shared leading header for any agent that prepends analyst reports to its
+# system_instruction. Keeping it byte-identical across masters / researchers
+# lets Gemini implicit cache hit on `header + analyst reports` across the
+# masters_panel → research_debate transition (same session, same reports).
+ANALYST_REPORT_HEADER: str = "【前置分析報告 — 請優先閱讀以下資料再發表你的觀點】"
+
 # ---------------------------------------------------------------------------
 # Report context builder
 # ---------------------------------------------------------------------------
@@ -249,7 +255,7 @@ def make_instruction(
 
         if context_block:
             return (
-                "【前置分析報告 — 請優先閱讀以下資料再發表你的觀點】\n\n"
+                f"{ANALYST_REPORT_HEADER}\n\n"
                 f"{context_block}\n\n"
                 "---\n\n"
                 f"{master_specific_tail}"
