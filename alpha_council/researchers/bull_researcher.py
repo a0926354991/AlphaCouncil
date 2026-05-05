@@ -48,7 +48,7 @@ bull_researcher = Agent(
     instruction=_instruction,
     before_model_callback=make_peer_injector(
         peer_keys=["bear_argument?"],
-        header="【空方研究員最新論點 — 請逐點反駁】",
+        header="↑ 以上為空方研究員最新論點，請逐點反駁並強化多方立場。",
     ),
     output_key="bull_argument",
 )

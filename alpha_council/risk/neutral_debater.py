@@ -48,7 +48,7 @@ neutral_debater = Agent(
     instruction=_instruction,
     before_model_callback=make_peer_injector(
         peer_keys=["aggressive_argument", "conservative_argument?"],
-        header="【其他辯手最新論點 — 請逐點點評並修正仲裁建議】",
+        header="↑ 以上為其他辯手最新論點，請逐點點評並修正仲裁建議。",
     ),
     output_key="neutral_argument",
 )

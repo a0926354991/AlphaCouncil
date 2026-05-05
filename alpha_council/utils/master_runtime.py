@@ -198,9 +198,12 @@ def make_peer_injector(peer_keys: list[str], header: str):
     The injected message uses role="user" because the Gemini API only accepts
     user/model roles in contents — system_instruction is a separate field.
 
-    Order is `{header}\n\n{peer_block}`: header is static per agent definition,
-    peer_block varies per round. Static-first matches the same cache principle
-    as `make_instruction` (analyst prefix → master_specific_tail).
+    Order is `{peer_block}\n\n{header}`: peer_block content often overlaps
+    across peers/rounds (e.g. aggressive_argument appears in neutral's and
+    conservative's peer_block), so placing it first lets the shared report
+    body sit at a cacheable prefix offset. The header — which is per-agent
+    specific instruction — trails behind and explicitly refers back to the
+    report content above it.
     """
     from google.genai import types  # local import to avoid top-level coupling
 
@@ -211,7 +214,7 @@ def make_peer_injector(peer_keys: list[str], header: str):
         llm_request.contents.append(
             types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=f"{header}\n\n{peer_block}")],
+                parts=[types.Part.from_text(text=f"{peer_block}\n\n{header}")],
             )
         )
         return None
