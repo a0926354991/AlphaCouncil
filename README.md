@@ -38,6 +38,12 @@ make api-server
 - `make web`：使用 `adk web` 啟動 ADK Web UI
 - `make api-server`：使用 `adk api_server` 啟動 API 服務
 
+部署與實驗設計文件：
+
+- `docs/deployment/architecture.md`
+- `docs/deployment/cli-batch-experiment.md`
+- `docs/adr/0001-split-agent-and-cli-deployment.md`
+
 如果你偏好直接使用 `uv`，也可以執行：
 
 ```bash
