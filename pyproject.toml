@@ -15,6 +15,7 @@ dependencies = [
     "lxml",
     "numpy",
     "pandas",
+    "python-dotenv",
     "requests",
     "ta",
     "yfinance",
