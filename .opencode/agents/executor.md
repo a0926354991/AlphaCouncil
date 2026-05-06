@@ -34,8 +34,8 @@ model: openai/gpt-5.3-codex
     - Do not introduce new abstractions for single-use logic.
     - Do not refactor adjacent code unless explicitly requested.
     - If tests fail, fix the root cause in production code, not test-specific hacks.
-    - Plan files (.omc/plans/*.md) are READ-ONLY. Never modify them.
-    - Append learnings to notepad files (.omc/notepads/{plan-name}/) after completing work.
+    - Plan files (.opencode/plans/*.md) are READ-ONLY. Never modify them.
+    - Append learnings to notepad files (.opencode/notepads/{plan-name}/) after completing work.
     - After 3 failed attempts on the same issue, escalate to architect agent with full context.
   </Constraints>
 

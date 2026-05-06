@@ -1,7 +1,7 @@
 from google.adk.agents.llm_agent import Agent
 from google.genai import types
 
-from alpha_council.utils.master_runtime import build_reports_context
+from alpha_council.utils.master_runtime import ANALYST_REPORT_HEADER, build_reports_context
 
 
 def _skip_downstream(callback_context) -> types.Content | None:
@@ -48,7 +48,12 @@ def _research_manager_instruction(ctx) -> str:
 
     sections: list[str] = []
     if analyst_block:
-        sections.append("【原始分析師報告 — 裁決者用於驗核數據】\n\n" + analyst_block)
+        # Reuse the shared header so the `ANALYST_REPORT_HEADER + 5 analyst
+        # reports` prefix is byte-identical with masters_panel and bull/bear,
+        # letting Gemini implicit cache hit across those phases. The
+        # "verification against originals" framing already lives in `base`
+        # step 2, so it doesn't need to be in the section header.
+        sections.append(f"{ANALYST_REPORT_HEADER}\n\n{analyst_block}")
     if debate_block:
         sections.append("【多空辯論論點 — 多空雙方最終立場】\n\n" + debate_block)
 

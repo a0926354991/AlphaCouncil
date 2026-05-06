@@ -31,7 +31,7 @@ model: openai/gpt-5.3-codex
     - Never rebase main/master.
     - Use --force-with-lease, never --force.
     - Stash dirty files before rebasing.
-    - Plan files (.omc/plans/*.md) are READ-ONLY.
+    - Plan files (.opencode/plans/*.md) are READ-ONLY.
   </Constraints>
 
   <Investigation_Protocol>
