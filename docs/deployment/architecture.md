@@ -7,6 +7,7 @@
 - Agent Service（主線）
   - 目標：對外服務、一般 agent runtime
   - 來源：以 `agents-cli scaffold/enhance` 產生的標準部署結構為主
+  - 入口：`agents-cli deploy`（由 `pyproject.toml` + `make deploy-agent` 收斂）
 - CLI Batch（實驗）
   - 目標：排程批次實驗、回測資料產生
   - 拓樸：`Cloud Scheduler -> Cloud Workflows -> Cloud Run Job -> GCS`
@@ -29,6 +30,8 @@
 - `deploy-agent` 與 `deploy-cli-batch` 分開執行
 - `destroy` 分開執行，避免誤刪另一條線資源
 - 批次實驗清理（reports/logs/images）視資料保留政策決定
+- Agent Service 名稱直接沿用 `[project].name = "alpha-council"`
+- CLI Batch cleanup 參數不可沿用 Agent Service Artifact Registry 名稱，避免跨線刪除
 
 ## 5) 失敗隔離
 

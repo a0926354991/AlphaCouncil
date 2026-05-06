@@ -27,3 +27,11 @@ alpha-council = "alpha_council.cli.run:main"
 
 [tool.setuptools.packages.find]
 include = ["alpha_council*", "guardrail*"]
+
+[tool.agents-cli]
+acli_version = "0.1.2"
+agent_directory = "alpha_council"
+region = "asia-east1"
+
+[tool.agents-cli.create_params]
+deployment_target = "cloud_run"

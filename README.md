@@ -30,6 +30,7 @@ make run
 make run-cli
 make web
 make api-server
+make build-cli-image
 ```
 
 - `make sync`：使用 `uv sync` 安裝並同步依賴
@@ -37,9 +38,11 @@ make api-server
 - `make run-cli`：使用新入口 `alpha-council run` 執行一次完整 pipeline
 - `make web`：使用 `adk web` 啟動 ADK Web UI
 - `make api-server`：使用 `adk api_server` 啟動 API 服務
+- `make build-cli-image`：建置 CLI Batch 的 Cloud Run Job image
 
 部署與實驗設計文件：
 
+- `docs/deployment/agent-service.md`
 - `docs/deployment/architecture.md`
 - `docs/deployment/cli-batch-experiment.md`
 - `docs/adr/0001-split-agent-and-cli-deployment.md`

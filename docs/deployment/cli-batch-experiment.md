@@ -2,6 +2,8 @@
 
 本文件定義 CLI 實驗部署（非主線服務）做法，與 Agent Service 分離。
 
+Agent Service 部署請看 `docs/deployment/agent-service.md`。本文件只涵蓋 CLI Batch。
+
 ## 1) 實驗目標
 
 - 固定時間觸發分析
@@ -25,9 +27,11 @@
 ## 3) 執行拓樸
 
 - Cloud Scheduler：定時觸發
-- Cloud Workflows：並行 fan-out（多 ticker）
+- Cloud Workflows：並行 fan-out（多 ticker，負責啟動 jobs）
 - Cloud Run Job：執行 `alpha-council run`
 - GCS：持久化報告
+
+Cloud Run Job 使用專用 batch image，入口為 `Dockerfile.cli`。
 
 ## 4) CLI 介面對齊原則
 
@@ -72,6 +76,45 @@ Workflow/Scheduler 僅授予觸發所需權限，不使用廣域管理角色。
   - GCS reports
   - Cloud Build logs
   - Artifact Registry repository/image
+
+Makefile 已保留對應入口，Terraform root 在 `deployment/cli_batch/terraform`：
+
+- `make deploy-cli-batch`
+- `make destroy-cli-batch`
+- `make cleanup-gcs-reports`
+- `make cleanup-cloudbuild-logs`
+- `make cleanup-artifact-repo`
+
+建議先複製：
+
+```bash
+cp deployment/cli_batch/terraform/terraform.tfvars.example \
+  deployment/cli_batch/terraform/terraform.tfvars
+```
+
+然後執行：
+
+```bash
+make build-cli-image CLI_IMAGE_TAG=latest
+make deploy-cli-batch CLI_BATCH_VARS_FILE=terraform.tfvars CLI_IMAGE_TAG=latest
+```
+
+目前 Workflow 成功代表「所有 ticker 的 Cloud Run Job 已成功啟動」，最終完成狀態需再看 Job executions 與 GCS 報告檔。
+
+建議用 execution completion checker 驗證單次執行：
+
+```bash
+make check-cli-execution \
+  CLI_EXECUTION_NAME=cli-alpha-council-job-rbn64 \
+  CLI_GCS_OBJECT=gs://alphacouncil/tw/2330/2026-05-06/portfolio_report.json
+```
+
+exit code 約定：
+
+- `0`: execution 已完成，且若指定 GCS 物件則檔案存在
+- `1`: execution 已失敗
+- `2`: execution 成功，但指定的 GCS 物件不存在
+- `3`: execution 仍在進行中
 
 ## 8) 實驗分支策略
 
