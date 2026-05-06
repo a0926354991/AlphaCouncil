@@ -51,3 +51,10 @@ reports/
 
 # Local planning artifacts
 .omc/
+
+# Terraform local cache/state
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
