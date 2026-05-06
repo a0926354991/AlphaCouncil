@@ -27,12 +27,14 @@ AlphaCouncil 是一個以 **Google ADK**（Agent Development Kit）驅動的多�
 ```bash
 make sync
 make run
+make run-cli
 make web
 make api-server
 ```
 
 - `make sync`：使用 `uv sync` 安裝並同步依賴
 - `make run`：使用 `adk run alpha_council` 啟動 CLI
+- `make run-cli`：使用新入口 `alpha-council run` 執行一次完整 pipeline
 - `make web`：使用 `adk web` 啟動 ADK Web UI
 - `make api-server`：使用 `adk api_server` 啟動 API 服務
 
@@ -40,9 +42,24 @@ make api-server
 
 ```bash
 uv run adk run alpha_council
+uv run alpha-council run --ticker 2330 --market tw --masters 1,3,5 --report-format json
 uv run adk web
 uv run adk api_server
 ```
+
+`alpha-council run` 支援以下參數：
+
+- `--ticker`（必要）
+- `--market`：`us|tw`（未提供會自動推斷）
+- `--masters`：可傳編號或名稱（例如 `1,3,5` 或 `warren_buffett,ben_graham`）
+- `--report-format`：`json|md`（優先序：CLI > `REPORT_FORMAT` > `json`）
+- `--timeout-seconds`：單次執行逾時秒數（預設讀取 `ORCHESTRATOR_TIMEOUT_SECONDS`，預設值 1800）
+- `--debug`：顯示事件流與最終回應原文（除錯模式）
+
+持久化輸出由環境變數控制：
+
+- `ALPHACOUNCIL_PERSIST_ENABLED=true` 才會落檔
+- `GCS_BUCKET_ROOT=gs://...` 時寫入 GCS，否則寫入 `LOCAL_REPORT_ROOT`（預設 `./reports`）
 
 ---
 

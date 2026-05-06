@@ -48,3 +48,6 @@ alpha_council/data/*
 
 # Generated reports
 reports/
+
+# Local planning artifacts
+.omc/

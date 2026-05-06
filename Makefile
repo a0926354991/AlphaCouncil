@@ -1,4 +1,4 @@
-.PHONY: sync lock run web api-server k8000
+.PHONY: sync lock run run-cli web api-server k8000
 
 sync:
 	uv sync
@@ -8,6 +8,11 @@ lock:
 
 run:
 	uv run adk run alpha_council
+
+run-cli:
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ -f alpha_council/.env ]; then set -a; . ./alpha_council/.env; set +a; fi; \
+	uv run alpha-council run --ticker 2330 --market tw --masters 1,2,3
 
 web:
 	uv run adk web
