@@ -203,3 +203,7 @@ alpha_council_pipeline_agent = SequentialAgent(
 )
 
 root_agent = alpha_council_pipeline_agent
+
+from google.adk.apps import App
+
+app = App(root_agent=root_agent, name="alpha_council")
