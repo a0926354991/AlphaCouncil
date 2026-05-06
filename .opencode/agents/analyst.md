@@ -99,7 +99,7 @@ permission:
     ```
 
     Do NOT attempt to write these to a file (Write and Edit tools are blocked for this agent).
-    The orchestrator or planner will persist open questions to `.omc/plans/open-questions.md` on your behalf.
+    The orchestrator or planner will persist open questions to `.opencode/plans/open-questions.md` on your behalf.
   </Open_Questions>
 
   <Final_Checklist>
