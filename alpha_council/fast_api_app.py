@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 
 import google.auth
 from fastapi import FastAPI
@@ -26,8 +27,11 @@ setup_telemetry()
 _, project_id = google.auth.default()
 logging_client = google_cloud_logging.Client()
 logger = logging_client.logger(__name__)
+raw_allow_origins = os.getenv("ALLOW_ORIGINS", "").strip()
 allow_origins = (
-    os.getenv("ALLOW_ORIGINS", "").split(",") if os.getenv("ALLOW_ORIGINS") else None
+    [origin.strip() for origin in re.split(r"[;,]", raw_allow_origins) if origin.strip()]
+    if raw_allow_origins
+    else None
 )
 
 # Artifact bucket for ADK (created by Terraform, passed via env var)

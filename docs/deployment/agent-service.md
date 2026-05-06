@@ -1,109 +1,97 @@
 # Agent Service Deployment
 
-本文件定義 Agent Service 主線部署方式。這條線以 `agents-cli deploy` 為唯一標準入口，不與 CLI Batch 混用。
+本文件定義 Agent Service 主線部署方式：**Cloud Build build image + Terraform apply**。
 
-## 1) 單一設定來源
+## 1) 單一部署路徑
 
-- `pyproject.toml`
-  - `[tool.agents-cli].agent_directory = "alpha_council"`
-  - `[tool.agents-cli].region = "asia-east1"`
-  - `[tool.agents-cli.create_params].deployment_target = "cloud_run"`
-- Cloud Run service name 直接取 `[project].name`，本專案會部署為 `alpha-council`
+- Agent Service 正式入口：`make deploy-agent`
+- Cloud Build 入口：`make build-agent-image`
+- Terraform root：`deployment/agent_service/terraform`
+- shared infra root：`deployment/shared_infra/terraform`
+- Cloud Run service name 沿用 `[project].name`，本專案為 `alpha-council`
 
-## 2) 前置條件
+## 2) 與 CLI Batch 邊界
 
-- 已安裝 `agents-cli` 與 `gcloud`
-- 已登入 GCP，且 `dassa-lab` 有部署權限
-- 已啟用 API:
-  - `cloudbuild.googleapis.com`
-  - `run.googleapis.com`
-- 建議一併啟用：
-  - `aiplatform.googleapis.com`
-  - `artifactregistry.googleapis.com`
-  - `storage.googleapis.com`
-- 已準備 Agent 專用 service account
-- 已準備 Agent telemetry bucket，並將 bucket 名稱提供給 `LOGS_BUCKET_NAME`
+- Agent Service 與 CLI Batch 維持分軌
+- 不共用 Terraform state
+- 不共用 destroy 指令
+- shared Artifact Registry repository 由 shared infra stack 管理
+- Agent 與 CLI Batch 可共用同一個 Artifact Registry repository，但 image 名稱必須分開
+  - Agent image：`alpha-council-agent`
+  - CLI image：`alpha-council-cli`
 
-## 3) 建議環境變數
+## 3) 前置條件
 
-- `GOOGLE_GENAI_USE_VERTEXAI=true`
-- `GOOGLE_CLOUD_PROJECT=dassa-lab`
-- `GOOGLE_CLOUD_LOCATION=us-central1`
-- `LOGS_BUCKET_NAME=<agent-logs-bucket>`
-- `ALLOW_ORIGINS=<comma-separated-origins>`
+- 已安裝 `gcloud`、`terraform`
+- 已登入 GCP 且 active project 正確
+- 已先部署 shared infra（包含 shared Artifact Registry repository 與共用 API enablement）
 
-`GOOGLE_CLOUD_LOCATION` 與 Cloud Run region 分離是預期設計：service 佈在 `asia-east1`，Vertex model location 固定 `us-central1`。
+## 4) 主要參數
 
-## 4) 標準部署指令
+- `AGENT_SERVICE_ACCOUNT_ID`：Agent runtime SA account id
+- `AGENT_LOGS_BUCKET_NAME`：bucket name only（不帶 `gs://`）
+- `AGENT_IMAGE_TAG`：本次部署 image tag
+- `AGENT_ALLOW_ORIGINS`：可選；多個 origin 用 `;` 分隔
 
-優先使用 `Makefile` 包裝後的標準入口：
+`GOOGLE_CLOUD_LOCATION` 與 Cloud Run region 分離是預期設計：service 在 `asia-east1`，Vertex location 固定 `us-central1`。
+
+## 5) 標準操作
+
+1. Build image
+
+```bash
+make deploy-shared-infra SHARED_TF_VARS_FILE=terraform.tfvars
+make build-agent-image AGENT_IMAGE_TAG=latest
+```
+
+2. Plan
+
+```bash
+make plan-agent \
+  AGENT_TF_VARS_FILE=terraform.tfvars \
+  AGENT_SERVICE_ACCOUNT_ID=agent-alpha-council \
+  AGENT_LOGS_BUCKET_NAME=alphacouncil-agent-logs \
+  AGENT_IMAGE_TAG=latest
+```
+
+3. Apply
 
 ```bash
 make deploy-agent \
-  AGENT_SERVICE_ACCOUNT=agent-alpha-council@dassa-lab.iam.gserviceaccount.com \
-  AGENT_LOGS_BUCKET=alphacouncil-agent-logs \
-  AGENT_ALLOW_ORIGINS=https://app.example.com,https://admin.example.com
+  AGENT_TF_VARS_FILE=terraform.tfvars \
+  AGENT_SERVICE_ACCOUNT_ID=agent-alpha-council \
+  AGENT_LOGS_BUCKET_NAME=alphacouncil-agent-logs \
+  AGENT_IMAGE_TAG=latest
 ```
 
-對應的底層行為是：
+4. Destroy
 
 ```bash
-agents-cli deploy \
-  --project dassa-lab \
-  --region asia-east1 \
-  --port 8080 \
-  --memory 4Gi \
-  --service-account <agent-sa> \
-  --update-env-vars '^@^GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=dassa-lab@GOOGLE_CLOUD_LOCATION=us-central1@LOGS_BUCKET_NAME=<bucket>@ALLOW_ORIGINS=<origins>' \
-  --no-confirm-project
+make destroy-agent \
+  AGENT_TF_VARS_FILE=terraform.tfvars \
+  AGENT_SERVICE_ACCOUNT_ID=agent-alpha-council \
+  AGENT_LOGS_BUCKET_NAME=alphacouncil-agent-logs \
+  AGENT_IMAGE_TAG=latest
 ```
 
-這裡使用 `^@^...@...` delimiter syntax，避免 `ALLOW_ORIGINS` 內部的逗號被 `gcloud` 誤判成不同 env var。
+## 6) 驗證
 
-## 5) 驗證
+- `terraform output` 檢查 service URL
+- `gcloud run services describe alpha-council --region asia-east1 --project dassa-lab`
+- `agents-cli run --url <service-url> --mode adk "分析 2330"`
+- 驗 `/feedback` 可正常寫 log
 
-- 設定 dry run：
-
-```bash
-agents-cli deploy --dry-run --project dassa-lab --region asia-east1 --no-confirm-project
-```
-
-- 服務狀態：
-
-```bash
-agents-cli deploy --status --project dassa-lab --region asia-east1
-```
-
-- Smoke test:
-  - `gcloud run services describe alpha-council --region asia-east1 --project dassa-lab`
-  - 取得 service URL 後，用 `agents-cli run --url <service-url> --mode adk "分析 2330"`
-  - 驗 `/feedback` 可成功寫入 log
-
-## 6) IAM 最小權限
-
-Agent service account 至少需要：
+## 7) IAM 最小權限（runtime SA）
 
 - `roles/aiplatform.user`
 - `roles/logging.logWriter`
-- `roles/storage.objectAdmin` 或依 bucket policy 收斂到更小範圍
+- `roles/storage.objectAdmin`（或以 bucket policy 收斂）
 
-如果 Agent 需要讀取 Secret Manager，再額外授予：
+若需讀取 Secret Manager，再加：
 
 - `roles/secretmanager.secretAccessor`
 
-## 7) 回滾
+## 8) Runtime 依賴提醒
 
-Cloud Run service 可直接用 revision traffic rollback：
-
-```bash
-gcloud run revisions list --service=alpha-council --region=asia-east1 --project=dassa-lab
-gcloud run services update-traffic alpha-council --to-revisions=<revision>=100 --region=asia-east1 --project=dassa-lab
-```
-
-若是設定或程式問題，仍以修正後重新 `make deploy-agent` 為主。
-
-## 8) 與 CLI Batch 的邊界
-
-- `agents-cli deploy` 只負責 Agent Service
-- CLI Batch 的 `Cloud Run Job + Workflows + Scheduler` 必須維持獨立部署切面
-- 不共用 destroy 指令、不共用 service account、不共用 Terraform state
+- Agent 會對外讀取市場資料與新聞來源
+- 若有 egress、DNS、VPC-SC 限制，需先確認可連線，避免 deploy 成功但執行階段失敗

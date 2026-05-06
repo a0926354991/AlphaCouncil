@@ -1,0 +1,12 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - ${_AGENT_DOCKERFILE}
+      - -t
+      - ${_AGENT_IMAGE_URI}
+      - .
+
+images:
+  - ${_AGENT_IMAGE_URI}

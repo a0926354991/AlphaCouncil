@@ -21,6 +21,7 @@ WORKDIR /code
 COPY ./pyproject.toml ./README.md ./uv.lock* ./
 
 COPY ./alpha_council ./alpha_council
+COPY ./guardrail ./guardrail
 
 RUN uv sync --frozen
 
