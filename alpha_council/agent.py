@@ -34,9 +34,9 @@ from alpha_council.masters import (
 from alpha_council.researchers import bull_researcher, bear_researcher
 from alpha_council.risk import aggressive_debater, neutral_debater, conservative_debater
 from alpha_council.trader import trader
+from alpha_council.guardrails.stock_code_guard import stock_code_guard_callback
 from alpha_council.managers import research_manager
 from alpha_council.master_selector import master_selector_agent
-from guardrail.stock_code_guard import stock_code_guard_callback
 
 
 # ---------------------------------------------------------------------------
