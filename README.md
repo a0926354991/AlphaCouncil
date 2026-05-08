@@ -30,11 +30,6 @@ make run
 make run-cli
 make web
 make api-server
-make deploy-shared-infra
-make build-agent-image
-make plan-agent
-make deploy-agent
-make build-cli-image
 ```
 
 - `make sync`：使用 `uv sync` 安裝並同步依賴
@@ -42,23 +37,8 @@ make build-cli-image
 - `make run-cli`：使用新入口 `alpha-council run` 執行一次完整 pipeline
 - `make web`：使用 `adk web` 啟動 ADK Web UI
 - `make api-server`：使用 `adk api_server` 啟動 API 服務
-- `make deploy-shared-infra`：套用 shared infra Terraform（共用 Artifact Registry owner）
-- `make build-agent-image`：建置 Agent Service 的 Cloud Run image
-- `make plan-agent`：預覽 Agent Service Terraform 變更
-- `make deploy-agent`：套用 Agent Service Terraform（正式部署）
-- `make build-cli-image`：建置 CLI Batch 的 Cloud Run Job image
 
-部署與實驗設計文件：
-
-- `docs/deployment/agent-service.md`
-- `docs/deployment/architecture.md`
-- `docs/deployment/cli-batch-experiment.md`
-- `docs/adr/0001-split-agent-and-cli-deployment.md`
-
-Agent Service 部署採單一路徑：`make build-agent-image` + `make deploy-agent`（Cloud Build + Terraform）。
-Shared Artifact Registry 採獨立 owner：`make deploy-shared-infra`。
-`LOGS_BUCKET_NAME` / `AGENT_LOGS_BUCKET` 一律使用 bucket name（不加 `gs://`）。
-`ALLOW_ORIGINS` 預設可留空；僅在瀏覽器跨網域呼叫已部署服務時再設定（多個來源請用 `;` 分隔）。
+本專案採 local-first；雲端部署方案不屬於主線範圍，請依需求自行延伸。
 
 如果你偏好直接使用 `uv`，也可以執行：
 
