@@ -13,8 +13,14 @@ Investor* (chap. 14, "Defensive Investor") and *Security Analysis*.
                           NCAV ≈ current_assets − total_liabilities
   Earnings power (2)      Avg EPS yield (E/P) > 6.7% (= 1/15 P/E ceiling) (2)
                             > 5% (1)
+  Dividend record (2)     Continuous dividends in all years observed (2) |
+                            ≥ 3/5 years (1)
+                          Graham's *Defensive Investor* requires 20y of
+                          uninterrupted dividends; yfinance only exposes
+                          ~5y annual cashflow, so we score against the
+                          window we have and let the LLM flag the gap.
 
-Total cap 14. NCAV is almost always zero for modern large caps; we keep
+Total cap 16. NCAV is almost always zero for modern large caps; we keep
 the line because the LLM persona should still surface "no net-net here,
 positive verdict has to lean on Graham Number".
 """
@@ -43,6 +49,7 @@ class GrahamScore:
     graham_number: list[ScoreLine] = field(default_factory=list)
     ncav: list[ScoreLine] = field(default_factory=list)
     earnings_power: list[ScoreLine] = field(default_factory=list)
+    dividend_record: list[ScoreLine] = field(default_factory=list)
     graham_number_value: float | None = None
     price_per_share: float | None = None
     ncav_value: float | None = None
@@ -64,6 +71,7 @@ class GrahamScore:
             self.graham_number,
             self.ncav,
             self.earnings_power,
+            self.dividend_record,
         )
 
 
@@ -180,6 +188,35 @@ def _earnings_power(metrics: list[FinancialMetrics],
                        f"avg NI({len(nis)}y)={money(avg_ni)} → E/P={pct(ey)}")]
 
 
+def _dividend_record(line_items: Iterable[LineItem]) -> list[ScoreLine]:
+    """Continuity of dividend payments in observable window.
+
+    yfinance reports `dividends_paid` as a (typically negative) cashflow.
+    We treat any *non-zero* row as a year-with-dividend. Graham's full
+    20-year requirement isn't satisfiable with yfinance's ~5-year window;
+    the prompt template surfaces this caveat for the LLM persona.
+    """
+    div_series = list(line_item_series(list(line_items), "dividends_paid"))
+    if not div_series:
+        return [ScoreLine("Continuous dividend record",
+                           0.0, 2.0, "dividends_paid line item not in dataset")]
+    n = len(div_series)
+    paid = sum(1 for li in div_series if li.value is not None and abs(li.value) > 0)
+    if paid == n and n >= 5:
+        score = 2.0
+        verdict = f"{paid}/{n} consecutive years (window-complete)"
+    elif paid == n:
+        score = 1.5
+        verdict = f"{paid}/{n} years (window < 5y — Graham's 20y rule unverified)"
+    elif paid >= 3:
+        score = 1.0
+        verdict = f"{paid}/{n} years (gaps present)"
+    else:
+        score = 0.0
+        verdict = f"{paid}/{n} years (sparse / no record)"
+    return [ScoreLine("Continuous dividend record", score, 2.0, verdict)]
+
+
 def score(state) -> GrahamScore:
     metrics: list[FinancialMetrics] = state.get("shared_data:financial_metrics") or []
     line_items: list[LineItem] = state.get("shared_data:line_items") or []
@@ -195,6 +232,7 @@ def score(state) -> GrahamScore:
         graham_number=gn_lines,
         ncav=ncav_lines,
         earnings_power=_earnings_power(metrics, line_items, market_cap),
+        dividend_record=_dividend_record(line_items),
         graham_number_value=gn_value,
         price_per_share=price,
         ncav_value=ncav_value,
@@ -209,6 +247,7 @@ def format_block(s: GrahamScore) -> str:
         format_scorecard("Graham Number (price test)", s.graham_number),
         format_scorecard("NCAV / Net-Net", s.ncav),
         format_scorecard("Earnings Power", s.earnings_power),
+        format_scorecard("Dividend Record", s.dividend_record),
     ]
     summary = (
         f"### Summary\n"

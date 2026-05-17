@@ -34,6 +34,8 @@ CANONICAL_LINE_ITEMS: tuple[str, ...] = (
     "total_debt",
     "total_equity",
     "total_assets",
+    "current_assets",
+    "current_liabilities",
     "cash_and_equivalents",
     "shares_outstanding",
     "dividends_paid",

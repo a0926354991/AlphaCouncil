@@ -11,8 +11,12 @@ more flexible on quality.
   Balance sheet (2)         D/E < 0.3 (2) | < 0.5 (1)
   Predictability (2)        FCF positive 3/3 (2) | 2/3 (1)
   Capital allocation (2)    Net buybacks (1) | Insider net buying (1)
+  Double potential (3)      Forward intrinsic / mcap > 2.5 (3) |
+                            > 2.0 (2) | > 1.5 (1) — projects 3y
+                            forward using observed revenue CAGR
 
-Total cap 12. Note "Dhandho" implicitly demands a *simple* business — not
+Total cap 15. Double potential is Pabrai's "Spawner / Few moves to a
+double" lens — explicitly forward-looking, complementing the static MoS. Note "Dhandho" implicitly demands a *simple* business — not
 something we can score quantitatively from yfinance, so the persona prompt
 carries that judgement instead of the deterministic side.
 """
@@ -41,10 +45,14 @@ class PabraiScore:
     balance_sheet: list[ScoreLine] = field(default_factory=list)
     predictability: list[ScoreLine] = field(default_factory=list)
     capital_allocation: list[ScoreLine] = field(default_factory=list)
+    double_potential: list[ScoreLine] = field(default_factory=list)
     intrinsic_value: float | None = None
     market_cap: float | None = None
     margin_of_safety: float | None = None
     owner_earnings_yield: float | None = None
+    forward_intrinsic: float | None = None
+    revenue_cagr: float | None = None
+    double_ratio: float | None = None
 
     @property
     def total(self) -> float:
@@ -62,6 +70,7 @@ class PabraiScore:
             self.balance_sheet,
             self.predictability,
             self.capital_allocation,
+            self.double_potential,
         )
 
 
@@ -154,6 +163,68 @@ def _capital_allocation(line_items: Iterable[LineItem],
     return lines
 
 
+def _double_potential(
+    metrics: list[FinancialMetrics],
+    line_items: Iterable[LineItem],
+    latest_fm: FinancialMetrics | None,
+    market_cap: float | None,
+) -> tuple[list[ScoreLine], float | None, float | None, float | None]:
+    """Project forward intrinsic = OE × (1 + g)^3 × 10, then compare to mcap.
+
+    Returns (lines, forward_intrinsic, revenue_cagr, double_ratio).
+
+    g comes from observed revenue CAGR over the available history. We use
+    revenue (not earnings) because earnings can be more volatile and
+    Pabrai's heuristic is fundamentally about *business scale*, not
+    accounting earnings. CAGR is capped at 25% to avoid the model
+    extrapolating a single hot year into a perpetual rocket.
+    """
+    owner_earnings, _ = compute_owner_earnings(latest_fm, line_items)
+    if owner_earnings is None or market_cap is None or market_cap == 0:
+        return ([ScoreLine("Forward double potential",
+                           0.0, 3.0, "owner earnings or market_cap n/a")],
+                None, None, None)
+    revs = [
+        (f.period_end, f.revenue)
+        for f in metrics
+        if f.revenue is not None and f.revenue > 0
+    ]
+    if len(revs) < 2:
+        return ([ScoreLine("Forward double potential",
+                           0.0, 3.0, "need ≥2 revenue points for CAGR")],
+                None, None, None)
+    revs.sort(key=lambda t: t[0])
+    start_date, start_rev = revs[0]
+    end_date, end_rev = revs[-1]
+    years = (end_date - start_date).days / 365.25
+    if years < 1.0:
+        return ([ScoreLine("Forward double potential",
+                           0.0, 3.0, f"history span only {years:.1f}y")],
+                None, None, None)
+    cagr = (end_rev / start_rev) ** (1 / years) - 1
+    cagr_capped = min(max(cagr, -0.10), 0.25)
+    forward_oe = owner_earnings * (1 + cagr_capped) ** 3
+    forward_intrinsic = forward_oe * 10
+    double_ratio = forward_intrinsic / market_cap if market_cap > 0 else None
+    if double_ratio is None:
+        score = 0.0
+    elif double_ratio > 2.5:
+        score = 3.0
+    elif double_ratio > 2.0:
+        score = 2.0
+    elif double_ratio > 1.5:
+        score = 1.0
+    else:
+        score = 0.0
+    detail = (
+        f"revenue CAGR={pct(cagr)} (capped {pct(cagr_capped)} for projection); "
+        f"3y forward intrinsic≈{money(forward_intrinsic)}; "
+        f"forward / mcap={num(double_ratio)}×"
+    )
+    return ([ScoreLine("Forward intrinsic / mcap > 2", score, 3.0, detail)],
+            forward_intrinsic, cagr, double_ratio)
+
+
 def score(state) -> PabraiScore:
     metrics: list[FinancialMetrics] = state.get("shared_data:financial_metrics") or []
     line_items: list[LineItem] = state.get("shared_data:line_items") or []
@@ -161,16 +232,24 @@ def score(state) -> PabraiScore:
     market_cap = state.get("shared_data:market_cap")
     latest_fm = latest(metrics)
     oey_lines, mos_lines, intrinsic, oe_yield, mos = _valuation(latest_fm, line_items, market_cap)
+    sorted_metrics = sorted(metrics, key=lambda f: f.period_end) if metrics else []
+    dbl_lines, fwd_intrinsic, rev_cagr, dbl_ratio = _double_potential(
+        sorted_metrics, line_items, latest_fm, market_cap,
+    )
     return PabraiScore(
         owner_earnings_yield_lines=oey_lines,
         margin_of_safety_lines=mos_lines,
         balance_sheet=_balance_sheet(latest_fm),
         predictability=_predictability(line_items),
         capital_allocation=_capital_allocation(line_items, insider),
+        double_potential=dbl_lines,
         intrinsic_value=intrinsic,
         market_cap=market_cap,
         margin_of_safety=mos,
         owner_earnings_yield=oe_yield,
+        forward_intrinsic=fwd_intrinsic,
+        revenue_cagr=rev_cagr,
+        double_ratio=dbl_ratio,
     )
 
 
@@ -181,14 +260,18 @@ def format_block(s: PabraiScore) -> str:
         format_scorecard("Balance Sheet", s.balance_sheet),
         format_scorecard("Predictability (FCF)", s.predictability),
         format_scorecard("Capital Allocation", s.capital_allocation),
+        format_scorecard("Double Potential (3y forward)", s.double_potential),
     ]
     summary = (
         f"### Summary\n"
         f"  total: {s.total:.1f} / {s.total_max:.1f}\n"
-        f"  intrinsic_value: {money(s.intrinsic_value)}\n"
+        f"  intrinsic_value (static): {money(s.intrinsic_value)}\n"
+        f"  forward_intrinsic (3y): {money(s.forward_intrinsic)}\n"
         f"  market_cap: {money(s.market_cap)}\n"
         f"  margin_of_safety: {pct(s.margin_of_safety)}\n"
-        f"  owner_earnings_yield: {pct(s.owner_earnings_yield)}"
+        f"  owner_earnings_yield: {pct(s.owner_earnings_yield)}\n"
+        f"  revenue_cagr (observed): {pct(s.revenue_cagr)}\n"
+        f"  forward / mcap: {num(s.double_ratio)}×"
     )
     return (
         "【Pabrai 量化 checklist — Dhandho：heads I win, tails I don't lose much】\n"

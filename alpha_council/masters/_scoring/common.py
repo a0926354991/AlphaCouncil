@@ -7,6 +7,7 @@ LLM from inferring spurious signals from formatting differences.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Sequence
 
 from alpha_council.providers.base import FinancialMetrics, LineItem
@@ -50,6 +51,46 @@ def line_item_series(items: Sequence[LineItem] | None, name: str) -> list[LineIt
         key=lambda li: li.period_end,
         reverse=True,
     )
+
+
+def compute_cagr(
+    points: list[tuple[date, float]],
+    *,
+    min_years: float = 1.0,
+    cap: float | None = None,
+    floor: float | None = None,
+) -> tuple[float | None, float | None, float, str]:
+    """Generic CAGR over (date, value) points.
+
+    Returns (cagr, cagr_capped, years, description). All four values are
+    populated when computation succeeds; on failure returns
+    (None, None, 0.0, reason_string).
+
+    Used by Pabrai's double-potential projection and Damodaran's DCF; both
+    cap CAGR to avoid the model extrapolating one hot year into perpetual
+    growth. Capping is the caller's choice — pass cap=0.25 for "no business
+    grows 25%+ forever".
+
+    Caller is expected to filter the input series (positive values, etc.);
+    this function only enforces ≥2 points and ≥min_years span.
+    """
+    valid = [(d, v) for d, v in points if v is not None and v > 0]
+    if len(valid) < 2:
+        return None, None, 0.0, f"need ≥2 positive points; have {len(valid)}"
+    valid.sort(key=lambda t: t[0])
+    start_date, start_val = valid[0]
+    end_date, end_val = valid[-1]
+    years = (end_date - start_date).days / 365.25
+    if years < min_years:
+        return None, None, years, f"history span {years:.1f}y < required {min_years}y"
+    cagr = (end_val / start_val) ** (1 / years) - 1
+    capped = cagr
+    if cap is not None:
+        capped = min(capped, cap)
+    if floor is not None:
+        capped = max(capped, floor)
+    desc = f"{start_val:.2g} → {end_val:.2g} over {years:.1f}y"
+    return cagr, capped, years, desc
 
 
 def compute_owner_earnings(

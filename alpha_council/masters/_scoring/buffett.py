@@ -5,11 +5,22 @@ Adapted from ai-hedge-fund's analyse_buffett with these mapping choices:
   Profitability (max 6)   ROE>15% (2) | Op-margin>15% (2) | Net-margin>10% (1) | ROA>5% (1)
   Financial strength (4)  D/E<0.5 (2)  | Current ratio>1.5 (1) | FCF positive (1)
   Earnings quality (3)    Net income positive 5y (2) | Earnings growing YoY (1)
+  Pricing power (2)       Gross margin > 40% (1) | Gross margin stable (1)
+  Compounding (2)         BVPS 4y CAGR > 10% (2) | > 5% (1)
   Moat proxy (3)          ROE std dev <5pp over 5y (2) | Margin stability (1)
   Management (2)          Net buybacks (1) | Insider net buying (1)
   Valuation (2)           Owner Earnings yield > 6% on current market cap (2)
 
-Total cap 20 points. The score itself is not the recommendation — it feeds
+Total cap 24 points.
+
+Pricing power vs moat proxy: moat proxy measures *stability* of returns;
+pricing power measures the *underlying source* — a high gross margin says
+the firm can charge a premium before SG&A even kicks in, which is the
+upstream evidence Buffett actually looks for ("the ability to raise prices
+with little loss of customers").
+
+Compounding: BVPS growth is Buffett's classic single-number proxy for
+intrinsic value compounding ("annual percentage change in book value"). The score itself is not the recommendation — it feeds
 the LLM persona, which weighs it against analyst-report qualitative signals
 before issuing the final 買入 / 持有 / 不碰. We keep the cap public so the
 LLM can sanity-check whether scoring inputs were complete.
@@ -42,6 +53,8 @@ class BuffettScore:
     profitability: list[ScoreLine] = field(default_factory=list)
     financial_strength: list[ScoreLine] = field(default_factory=list)
     earnings_quality: list[ScoreLine] = field(default_factory=list)
+    pricing_power: list[ScoreLine] = field(default_factory=list)
+    compounding: list[ScoreLine] = field(default_factory=list)
     moat: list[ScoreLine] = field(default_factory=list)
     management: list[ScoreLine] = field(default_factory=list)
     valuation: list[ScoreLine] = field(default_factory=list)
@@ -49,36 +62,28 @@ class BuffettScore:
     market_cap: float | None = None
     margin_of_safety: float | None = None
     owner_earnings_yield: float | None = None
+    bvps_cagr: float | None = None
+
+    @property
+    def _groups(self) -> tuple[list[ScoreLine], ...]:
+        return (
+            self.profitability,
+            self.financial_strength,
+            self.earnings_quality,
+            self.pricing_power,
+            self.compounding,
+            self.moat,
+            self.management,
+            self.valuation,
+        )
 
     @property
     def total(self) -> float:
-        return sum(
-            l.score
-            for group in (
-                self.profitability,
-                self.financial_strength,
-                self.earnings_quality,
-                self.moat,
-                self.management,
-                self.valuation,
-            )
-            for l in group
-        )
+        return sum(l.score for g in self._groups for l in g)
 
     @property
     def total_max(self) -> float:
-        return sum(
-            l.max_score
-            for group in (
-                self.profitability,
-                self.financial_strength,
-                self.earnings_quality,
-                self.moat,
-                self.management,
-                self.valuation,
-            )
-            for l in group
-        )
+        return sum(l.max_score for g in self._groups for l in g)
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +192,75 @@ def _earnings_quality(metrics: list[FinancialMetrics]) -> list[ScoreLine]:
         f"{growth_ok}/{len(by_year)} years with positive YoY growth",
     ))
     return lines
+
+
+def _pricing_power(metrics: list[FinancialMetrics]) -> list[ScoreLine]:
+    """Gross margin level + stability — Buffett's upstream pricing-power test.
+
+    Level is the more important of the two: a sustained high gross margin
+    is direct evidence the firm prices above commodity cost. Stability
+    over 3+ years rules out a one-off spike from input cost.
+    """
+    if not metrics:
+        return [ScoreLine("Pricing power", 0.0, 2.0, "no metrics")]
+    latest_fm = metrics[0] if metrics else None
+    gm = latest_fm.gross_margin if latest_fm else None
+    lines: list[ScoreLine] = []
+    lines.append(ScoreLine(
+        "Gross margin > 40%",
+        1.0 if (gm is not None and gm > 0.40) else 0.0,
+        1.0,
+        f"gross_margin={pct(gm)}" if gm is not None else "gross margin n/a",
+    ))
+    gms = [f.gross_margin for f in metrics if f.gross_margin is not None]
+    if len(gms) >= 3:
+        sd = pstdev(gms)
+        lines.append(ScoreLine(
+            "Gross margin stable (σ < 5pp)",
+            1.0 if sd < 0.05 else 0.0,
+            1.0,
+            f"σ(gross_margin)={pct(sd)} over {len(gms)} years",
+        ))
+    else:
+        lines.append(ScoreLine("Gross margin stable", 0.0, 1.0,
+                                f"<3 GM points ({len(gms)} available)"))
+    return lines
+
+
+def _compounding(metrics: list[FinancialMetrics]) -> tuple[list[ScoreLine], float | None]:
+    """BVPS compounding rate — Buffett's "annual percentage change in book value".
+
+    CAGR over the longest contiguous span we have. Needs both endpoints
+    positive and > 1 year apart; otherwise marked unverified.
+    Returns (lines, cagr_value).
+    """
+    bvps_series = [
+        (f.period_end, f.book_value_per_share)
+        for f in metrics
+        if f.book_value_per_share is not None and f.book_value_per_share > 0
+    ]
+    if len(bvps_series) < 2:
+        return ([ScoreLine("BVPS compounding", 0.0, 2.0,
+                           f"need ≥2 positive BVPS; have {len(bvps_series)}")], None)
+    bvps_series.sort(key=lambda t: t[0])
+    start_date, start_bvps = bvps_series[0]
+    end_date, end_bvps = bvps_series[-1]
+    years = (end_date - start_date).days / 365.25
+    if years < 1.0:
+        return ([ScoreLine("BVPS compounding", 0.0, 2.0,
+                           f"history span only {years:.1f}y")], None)
+    cagr = (end_bvps / start_bvps) ** (1 / years) - 1
+    if cagr > 0.10:
+        score = 2.0
+    elif cagr > 0.05:
+        score = 1.0
+    else:
+        score = 0.0
+    return ([ScoreLine(
+        "BVPS CAGR > 10%",
+        score, 2.0,
+        f"BVPS {num(start_bvps)} → {num(end_bvps)} over {years:.1f}y → CAGR={pct(cagr)}",
+    )], cagr)
 
 
 def _moat(metrics: list[FinancialMetrics]) -> list[ScoreLine]:
@@ -311,11 +385,15 @@ def score(state) -> BuffettScore:
 
     latest_fm = latest(metrics)
     val_lines, intrinsic, oe_yield, mos = _valuation(latest_fm, line_items, market_cap)
+    sorted_metrics = sorted(metrics, key=lambda f: f.period_end, reverse=True) if metrics else []
+    compounding_lines, bvps_cagr = _compounding(sorted_metrics)
 
     return BuffettScore(
         profitability=_profitability(latest_fm),
         financial_strength=_financial_strength(latest_fm, line_items),
         earnings_quality=_earnings_quality(metrics),
+        pricing_power=_pricing_power(sorted_metrics),
+        compounding=compounding_lines,
         moat=_moat(metrics),
         management=_management(line_items, insider_trades),
         valuation=val_lines,
@@ -323,6 +401,7 @@ def score(state) -> BuffettScore:
         market_cap=market_cap,
         margin_of_safety=mos,
         owner_earnings_yield=oe_yield,
+        bvps_cagr=bvps_cagr,
     )
 
 
@@ -332,6 +411,8 @@ def format_block(score_obj: BuffettScore) -> str:
         format_scorecard("Profitability", score_obj.profitability),
         format_scorecard("Financial Strength", score_obj.financial_strength),
         format_scorecard("Earnings Quality (5y)", score_obj.earnings_quality),
+        format_scorecard("Pricing Power (gross margin)", score_obj.pricing_power),
+        format_scorecard("Compounding (BVPS CAGR)", score_obj.compounding),
         format_scorecard("Moat Proxy (ROE/margin stability)", score_obj.moat),
         format_scorecard("Management / Capital Allocation", score_obj.management),
         format_scorecard("Valuation (Owner Earnings)", score_obj.valuation),
@@ -342,11 +423,13 @@ def format_block(score_obj: BuffettScore) -> str:
         f"  intrinsic_value: {money(score_obj.intrinsic_value)}\n"
         f"  market_cap: {money(score_obj.market_cap)}\n"
         f"  margin_of_safety: {pct(score_obj.margin_of_safety)}\n"
-        f"  owner_earnings_yield: {pct(score_obj.owner_earnings_yield)}"
+        f"  owner_earnings_yield: {pct(score_obj.owner_earnings_yield)}\n"
+        f"  bvps_cagr: {pct(score_obj.bvps_cagr)}"
     )
     return (
         "【Buffett 量化 checklist — 由 deterministic 規則計算，請以此為敘事依據】\n"
-        "規則來源：profitability + financial strength + earnings quality + moat proxy + management + valuation\n"
+        "規則來源：profitability + financial strength + earnings quality + "
+        "pricing power + compounding + moat proxy + management + valuation\n"
         "n/a 表示資料源未提供，應在敘事中標記為「未驗證」，不可主觀補值。\n\n"
         + "\n\n".join(sections)
         + "\n\n"

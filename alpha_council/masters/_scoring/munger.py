@@ -10,10 +10,14 @@ and lighter on margin-of-safety than Buffett.
   Capital efficiency (3)  ROIC > 15% (3) | > 10% (1) | fallback ROE > 20% (2)
   Balance sheet (2)       D/E < 0.5 (2) | < 1.0 (1)
   Capital allocation (2)  Net buybacks (1) | Insider net buying (1)
+  Management quality (2)  Capital intensity (CapEx/Rev < 10%) (1) |
+                          Reasonable payout (1) — dividends+buybacks/NI ∈ [20%, 80%]
   Valuation (2)           OE yield > 5% (2) | > 3% (1)
 
-Total cap 16. Munger tolerates a richer valuation than Buffett does, hence
-the more generous OE-yield thresholds.
+Total cap 18. Munger tolerates a richer valuation than Buffett does, hence
+the more generous OE-yield thresholds. Management quality sits separately
+from "capital allocation" because the latter just checks buyback direction,
+while quality looks at *whether reinvestment is disciplined*.
 """
 from __future__ import annotations
 
@@ -40,6 +44,7 @@ class MungerScore:
     capital_efficiency: list[ScoreLine] = field(default_factory=list)
     balance_sheet: list[ScoreLine] = field(default_factory=list)
     capital_allocation: list[ScoreLine] = field(default_factory=list)
+    management_quality: list[ScoreLine] = field(default_factory=list)
     valuation: list[ScoreLine] = field(default_factory=list)
     intrinsic_value: float | None = None
     market_cap: float | None = None
@@ -62,6 +67,7 @@ class MungerScore:
             self.capital_efficiency,
             self.balance_sheet,
             self.capital_allocation,
+            self.management_quality,
             self.valuation,
         )
 
@@ -151,6 +157,62 @@ def _capital_allocation(line_items: Iterable[LineItem],
     return lines
 
 
+def _management_quality(latest_fm: FinancialMetrics | None,
+                         line_items: Iterable[LineItem]) -> list[ScoreLine]:
+    """Capital intensity + payout discipline.
+
+    These two together capture "is management deploying capital sensibly?":
+      - Capital intensity = abs(CapEx) / Revenue. Lower is better for moat
+        businesses (think See's Candies). Above ~10% suggests heavy capex
+        treadmill, which Munger dislikes.
+      - Payout ratio = (abs(dividends_paid) + abs(net buyback spend)) / NI.
+        We can't observe buyback spend cleanly, so we use dividends_paid
+        only. "Reasonable" band 20%-80% — too low = hoarding, too high =
+        starved of reinvestment.
+    """
+    if latest_fm is None:
+        return [ScoreLine("Management quality", 0.0, 2.0, "no metrics")]
+    items_list = list(line_items)
+    capex_series = line_item_series(items_list, "capital_expenditure")
+    capex = capex_series[0].value if capex_series and capex_series[0].value is not None else None
+    revenue = latest_fm.revenue
+    lines: list[ScoreLine] = []
+    if capex is not None and revenue and revenue > 0:
+        intensity = abs(capex) / revenue
+        score = 1.0 if intensity < 0.10 else 0.0
+        lines.append(ScoreLine(
+            "Capital intensity (CapEx/Rev < 10%)",
+            score, 1.0,
+            f"CapEx/Rev={pct(intensity)} ({money(capex)}/{money(revenue)})",
+        ))
+    else:
+        lines.append(ScoreLine("Capital intensity", 0.0, 1.0, "CapEx or revenue n/a"))
+
+    div_series = line_item_series(items_list, "dividends_paid")
+    div = div_series[0].value if div_series and div_series[0].value is not None else None
+    ni = latest_fm.net_income
+    if div is not None and ni and ni > 0:
+        payout = abs(div) / ni
+        if 0.20 <= payout <= 0.80:
+            score = 1.0
+            verdict = "in band"
+        elif payout < 0.20:
+            score = 0.0
+            verdict = "hoarding (<20%)"
+        else:
+            score = 0.0
+            verdict = "over-distributing (>80%)"
+        lines.append(ScoreLine(
+            "Payout ratio in [20%, 80%]",
+            score, 1.0,
+            f"payout={pct(payout)} → {verdict}",
+        ))
+    else:
+        lines.append(ScoreLine("Payout ratio", 0.0, 1.0,
+                                "dividends_paid or net income n/a"))
+    return lines
+
+
 def _valuation(latest_fm: FinancialMetrics | None,
                 line_items: Iterable[LineItem],
                 market_cap: float | None) -> tuple[list[ScoreLine], float | None, float | None, float | None]:
@@ -186,6 +248,7 @@ def score(state) -> MungerScore:
         capital_efficiency=_capital_efficiency(latest_fm),
         balance_sheet=_balance_sheet(latest_fm),
         capital_allocation=_capital_allocation(line_items, insider),
+        management_quality=_management_quality(latest_fm, line_items),
         valuation=val,
         intrinsic_value=intrinsic,
         market_cap=market_cap,
@@ -201,6 +264,7 @@ def format_block(s: MungerScore) -> str:
         format_scorecard("Capital Efficiency", s.capital_efficiency),
         format_scorecard("Balance Sheet", s.balance_sheet),
         format_scorecard("Capital Allocation", s.capital_allocation),
+        format_scorecard("Management Quality", s.management_quality),
         format_scorecard("Valuation (OE × 12)", s.valuation),
     ]
     summary = (
